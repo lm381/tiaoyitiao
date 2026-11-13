@@ -6,37 +6,37 @@
   <title>跳一跳 · 实时联机对战</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
     body { background: #e8ecf1; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    canvas { background: linear-gradient(180deg, #f5f7fa 0%, #c3cfe2 100%); box-shadow: 0 10px 30px rgba(0,0,0,0.12); border-radius: 12px; max-width: 100vw; max-height: 100vh; }
+    canvas { background: linear-gradient(180deg, #f5f7fa 0%, #c3cfe2 100%); box-shadow: 0 10px 30px rgba(0,0,0,0.12); border-radius: 12px; max-width: 100vw; max-height: 100vh; touch-action: none; }
     
     #lobby {
       position: absolute; background: rgba(255,255,255,0.96); padding: 26px; border-radius: 16px;
-      box-shadow: 0 12px 32px rgba(0,0,0,0.16); text-align: center; width: 330px; z-index: 10;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.16); text-align: center; width: 330px; z-index: 20;
     }
     #lobby h2 { margin-bottom: 14px; color: #2b2d42; font-size: 20px; }
     #lobby input {
       width: 100%; padding: 10px 12px; margin-bottom: 10px; border: 1px solid #d1d5db;
-      border-radius: 8px; font-size: 14px; outline: none;
+      border-radius: 8px; font-size: 14px; outline: none; user-select: text; -webkit-user-select: text;
     }
     #lobby input:focus { border-color: #2b2d42; }
     #lobby button {
       width: 100%; padding: 12px; background: #2b2d42; color: #fff; border: none;
       border-radius: 8px; font-size: 15px; cursor: pointer; font-weight: bold; margin-top: 4px;
     }
-    #lobby button:hover { background: #3d405b; }
-    .sub-btn { background: #eef2f6 !important; color: #2b2d42 !important; font-size: 13px !important; padding: 8px !important; margin-top: 8px !important; }
-    .config-toggle { font-size: 12px; color: #6b7280; cursor: pointer; margin-top: 10px; display: inline-block; text-decoration: underline; }
+    #lobby button:active { opacity: 0.85; }
+    .sub-btn { background: #eef2f6 !important; color: #2b2d42 !important; font-size: 14px !important; padding: 10px !important; margin-top: 10px !important; }
+    .config-toggle { font-size: 12px; color: #6b7280; cursor: pointer; margin-top: 12px; display: inline-block; text-decoration: underline; padding: 4px; }
 
-    #ui { position: absolute; top: 20px; width: 380px; max-width: 92vw; display: flex; justify-content: space-between; pointer-events: none; }
+    #ui { position: absolute; top: 20px; width: 380px; max-width: 92vw; display: flex; justify-content: space-between; pointer-events: none; z-index: 10; }
     .score-box { background: rgba(255,255,255,0.85); padding: 8px 16px; border-radius: 10px; text-align: center; min-width: 110px; }
     .score-title { font-size: 12px; color: #666; }
     .score-val { font-size: 26px; font-weight: bold; color: #2b2d42; }
     #rival-box .score-val { color: #118ab2; }
-    #tip { position: absolute; top: 94px; width: 100%; text-align: center; font-size: 14px; color: #4b5563; pointer-events: none; font-weight: 500; }
+    #tip { position: absolute; top: 94px; width: 100%; text-align: center; font-size: 14px; color: #4b5563; pointer-events: none; font-weight: 500; z-index: 10; }
     #shareBtn {
-      position: absolute; bottom: 24px; background: rgba(43,45,66,0.85); color: #fff;
-      border: none; padding: 8px 16px; border-radius: 20px; font-size: 13px; cursor: pointer; display: none;
+      position: absolute; bottom: 28px; background: rgba(43,45,66,0.9); color: #fff;
+      border: none; padding: 10px 18px; border-radius: 20px; font-size: 13px; cursor: pointer; display: none; z-index: 15;
     }
   </style>
 </head>
@@ -49,9 +49,9 @@
       <input type="text" id="urlInput" placeholder="Supabase Project URL">
       <input type="password" id="keyInput" placeholder="Supabase Anon Public Key">
     </div>
-    <button onclick="joinRoom()">进入房间对战</button>
-    <button class="sub-btn" onclick="startOffline()">单人练习模式</button>
-    <span class="config-toggle" onclick="toggleConfig()">显示/隐藏 Supabase 密钥配置</span>
+    <button type="button" id="btnJoin">进入房间对战</button>
+    <button type="button" class="sub-btn" id="btnOffline">单人练习模式</button>
+    <span class="config-toggle" id="btnToggle">显示/隐藏 Supabase 密钥配置</span>
   </div>
 
   <div id="ui" style="display:none;">
@@ -65,15 +65,14 @@
     </div>
   </div>
   <div id="tip"></div>
-  <button id="shareBtn" onclick="copyInviteLink()">复制房间邀请链接</button>
+  <button type="button" id="shareBtn">复制房间邀请链接</button>
 
   <canvas id="gameCanvas" width="420" height="720"></canvas>
 
 <script>
-// // 默认填入配置（可在此处写死你的 URL 和 KEY，这样好友打开无需再填）
-const DEFAULT_SUPABASE_URL = 'https://你的项目ID.supabase.co'; 
-const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';默认填入配置（可在此处写死你的 URL 和 KEY，这样好友打开无需再填）
-
+// 默认填入配置（可在此处写死你的 URL 和 KEY，这样好友打开无需再填）
+const DEFAULT_SUPABASE_URL = ''; 
+const DEFAULT_SUPABASE_KEY = '';
 
 let supabaseClient = null;
 let channel = null;
@@ -81,7 +80,6 @@ let isOnline = false;
 const myId = 'player_' + Math.random().toString(36).substr(2, 6);
 let mapSeed = Date.now();
 
-// 初始化表单与 URL 参数读取
 window.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
   document.getElementById('roomInput').value = params.get('room') || '1024';
@@ -93,12 +91,15 @@ window.addEventListener('DOMContentLoaded', () => {
   if (savedUrl && savedKey) {
     document.getElementById('supabaseConfig').style.display = 'none';
   }
-});
 
-function toggleConfig() {
-  const box = document.getElementById('supabaseConfig');
-  box.style.display = box.style.display === 'none' ? 'block' : 'none';
-}
+  document.getElementById('btnJoin').addEventListener('click', joinRoom);
+  document.getElementById('btnOffline').addEventListener('click', startOffline);
+  document.getElementById('btnToggle').addEventListener('click', () => {
+    const box = document.getElementById('supabaseConfig');
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
+  });
+  document.getElementById('shareBtn').addEventListener('click', copyInviteLink);
+});
 
 function copyInviteLink() {
   const room = document.getElementById('roomInput').value.trim() || '1024';
@@ -107,6 +108,8 @@ function copyInviteLink() {
     const btn = document.getElementById('shareBtn');
     btn.innerText = '已复制链接！快发给好友';
     setTimeout(() => btn.innerText = '复制房间邀请链接', 2500);
+  }).catch(() => {
+    prompt('请长按复制下方邀请链接发送给好友：', url);
   });
 }
 
@@ -263,8 +266,8 @@ function toScreen(dist, y = 0) {
   };
 }
 
+// 仅在 canvas 画布上监听按下与松开，彻底避免干扰按钮点击
 function onPointerDown(e) {
-  if (['INPUT', 'BUTTON', 'SPAN'].includes(e.target.tagName)) return;
   if (document.getElementById('lobby').style.display !== 'none') return;
   e.preventDefault();
   
@@ -293,9 +296,9 @@ function onPointerUp(e) {
   sendAction('jump', { power: me.power });
 }
 
-window.addEventListener('mousedown', onPointerDown);
+canvas.addEventListener('mousedown', onPointerDown);
 window.addEventListener('mouseup', onPointerUp);
-window.addEventListener('touchstart', onPointerDown, { passive: false });
+canvas.addEventListener('touchstart', onPointerDown, { passive: false });
 window.addEventListener('touchend', onPointerUp, { passive: false });
 
 function updatePlayer(p) {
