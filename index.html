@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>跳一跳 · 实时联机对战</title>
+  <title>跳一跳 · 高还原联机版</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
-    body { background: #e8ecf1; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    canvas { background: linear-gradient(180deg, #f5f7fa 0%, #c3cfe2 100%); box-shadow: 0 10px 30px rgba(0,0,0,0.12); border-radius: 12px; max-width: 100vw; max-height: 100vh; touch-action: none; }
+    body { background: #d6dbe0; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    canvas { background: linear-gradient(180deg, #e9edf0 0%, #d4dae0 100%); box-shadow: 0 12px 36px rgba(0,0,0,0.12); max-width: 100vw; max-height: 100vh; touch-action: none; }
     
     #lobby {
       position: absolute; background: rgba(255,255,255,0.96); padding: 26px; border-radius: 16px;
@@ -19,7 +19,6 @@
       width: 100%; padding: 10px 12px; margin-bottom: 10px; border: 1px solid #d1d5db;
       border-radius: 8px; font-size: 14px; outline: none; user-select: text; -webkit-user-select: text;
     }
-    #lobby input:focus { border-color: #2b2d42; }
     #lobby button {
       width: 100%; padding: 12px; background: #2b2d42; color: #fff; border: none;
       border-radius: 8px; font-size: 15px; cursor: pointer; font-weight: bold; margin-top: 4px;
@@ -28,14 +27,15 @@
     .sub-btn { background: #eef2f6 !important; color: #2b2d42 !important; font-size: 14px !important; padding: 10px !important; margin-top: 10px !important; }
     .config-toggle { font-size: 12px; color: #6b7280; cursor: pointer; margin-top: 12px; display: inline-block; text-decoration: underline; padding: 4px; }
 
-    #ui { position: absolute; top: 20px; width: 380px; max-width: 92vw; display: flex; justify-content: space-between; pointer-events: none; z-index: 10; }
-    .score-box { background: rgba(255,255,255,0.85); padding: 8px 16px; border-radius: 10px; text-align: center; min-width: 110px; }
+    /* 微信原版风格大号左上角分数 */
+    #ui { position: absolute; top: 36px; left: 28px; right: 28px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; z-index: 10; }
+    #myScore { font-size: 56px; font-weight: 700; color: #333; line-height: 1; font-family: "Helvetica Neue", Arial, sans-serif; }
+    #rival-box { background: rgba(255,255,255,0.75); padding: 8px 14px; border-radius: 12px; text-align: right; backdrop-filter: blur(4px); }
     .score-title { font-size: 12px; color: #666; }
-    .score-val { font-size: 26px; font-weight: bold; color: #2b2d42; }
-    #rival-box .score-val { color: #118ab2; }
-    #tip { position: absolute; top: 94px; width: 100%; text-align: center; font-size: 14px; color: #4b5563; pointer-events: none; font-weight: 500; z-index: 10; }
+    #rivalScore { font-size: 24px; font-weight: bold; color: #118ab2; }
+    #tip { position: absolute; top: 105px; left: 28px; font-size: 14px; color: #666; pointer-events: none; z-index: 10; }
     #shareBtn {
-      position: absolute; bottom: 28px; background: rgba(43,45,66,0.9); color: #fff;
+      position: absolute; bottom: 28px; background: rgba(43,45,66,0.88); color: #fff;
       border: none; padding: 10px 18px; border-radius: 20px; font-size: 13px; cursor: pointer; display: none; z-index: 15;
     }
   </style>
@@ -43,7 +43,7 @@
 <body>
 
   <div id="lobby">
-    <h2>跳一跳 · 实时联机版</h2>
+    <h2>跳一跳 · 微信高还原联机版</h2>
     <input type="text" id="roomInput" placeholder="输入房间号 (如: 1024)">
     <div id="supabaseConfig">
       <input type="text" id="urlInput" placeholder="Supabase Project URL">
@@ -55,22 +55,19 @@
   </div>
 
   <div id="ui" style="display:none;">
-    <div class="score-box">
-      <div class="score-title">我方得分</div>
-      <div class="score-val" id="myScore">0</div>
-    </div>
-    <div class="score-box" id="rival-box">
+    <div id="myScore">0</div>
+    <div id="rival-box">
       <div class="score-title" id="rivalStatus">单人模式</div>
-      <div class="score-val" id="rivalScore">-</div>
+      <div id="rivalScore">-</div>
     </div>
   </div>
   <div id="tip"></div>
   <button type="button" id="shareBtn">复制房间邀请链接</button>
 
-  <canvas id="gameCanvas" width="420" height="720"></canvas>
+  <canvas id="gameCanvas" width="420" height="750"></canvas>
 
 <script>
-// 默认填入配置（可在此处写死你的 URL 和 KEY，这样好友打开无需再填）
+// ================= 1. Supabase 配置 =================
 const DEFAULT_SUPABASE_URL = ''; 
 const DEFAULT_SUPABASE_KEY = '';
 
@@ -80,17 +77,64 @@ let isOnline = false;
 const myId = 'player_' + Math.random().toString(36).substr(2, 6);
 let mapSeed = Date.now();
 
+// ================= 2. Web Audio 微信原版音效合成 =================
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+let chargeOsc = null;
+let chargeGain = null;
+
+function initAudio() {
+  if (!audioCtx) audioCtx = new AudioCtx();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function startChargeSound() {
+  initAudio();
+  stopChargeSound();
+  chargeOsc = audioCtx.createOscillator();
+  chargeGain = audioCtx.createGain();
+  chargeOsc.type = 'sine';
+  chargeOsc.frequency.setValueAtTime(180, audioCtx.currentTime);
+  chargeOsc.frequency.exponentialRampToValueAtTime(620, audioCtx.currentTime + 1.5);
+  chargeGain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+  chargeOsc.connect(chargeGain);
+  chargeGain.connect(audioCtx.destination);
+  chargeOsc.start();
+}
+
+function stopChargeSound() {
+  if (chargeOsc) {
+    try { chargeOsc.stop(); chargeOsc.disconnect(); } catch (e) {}
+    chargeOsc = null;
+  }
+}
+
+function playLandSound(combo) {
+  initAudio();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  // 微信原版连击音阶递增 (C5, D5, E5, G5, A5, C6...)
+  const notes = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.50, 1174.66, 1318.51];
+  const freq = combo > 0 ? notes[Math.min(combo - 1, notes.length - 1)] : 360;
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.35);
+}
+
+// ================= 3. 初始化与联机配置 =================
 window.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
   document.getElementById('roomInput').value = params.get('room') || '1024';
-  
   const savedUrl = DEFAULT_SUPABASE_URL || localStorage.getItem('jump_sb_url') || '';
   const savedKey = DEFAULT_SUPABASE_KEY || localStorage.getItem('jump_sb_key') || '';
   document.getElementById('urlInput').value = savedUrl;
   document.getElementById('keyInput').value = savedKey;
-  if (savedUrl && savedKey) {
-    document.getElementById('supabaseConfig').style.display = 'none';
-  }
+  if (savedUrl && savedKey) document.getElementById('supabaseConfig').style.display = 'none';
 
   document.getElementById('btnJoin').addEventListener('click', joinRoom);
   document.getElementById('btnOffline').addEventListener('click', startOffline);
@@ -108,9 +152,7 @@ function copyInviteLink() {
     const btn = document.getElementById('shareBtn');
     btn.innerText = '已复制链接！快发给好友';
     setTimeout(() => btn.innerText = '复制房间邀请链接', 2500);
-  }).catch(() => {
-    prompt('请长按复制下方邀请链接发送给好友：', url);
-  });
+  }).catch(() => prompt('请长按复制下方链接：', url));
 }
 
 function seededRandom() {
@@ -118,46 +160,62 @@ function seededRandom() {
   return mapSeed / 233280;
 }
 
+// ================= 4. 2.5D 等距空间坐标系 =================
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const ANGLE = Math.PI / 6;
-const COS = Math.cos(ANGLE);
-const SIN = Math.sin(ANGLE);
+const ISO_ANGLE = Math.PI / 6; // 30度等距视角
+const COS = Math.cos(ISO_ANGLE);
+const SIN = Math.sin(ISO_ANGLE);
 const STATE = { IDLE: 0, CHARGING: 1, JUMPING: 2, FALLING: 3, GAMEOVER: 4 };
 
-let camera = { x: 0, y: 0, targetX: 0, taANGLErgetY: 0 };
+let camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
 let blocks = [];
+let ripples = []; // 落地白色波纹特效
+let floatingTexts = []; // +1, +2 飘字特效
+
+// 3D 世界坐标 (x: 右上轴, z: 左上轴, y: 垂直高度) 转 2D 屏幕坐标
+function worldToScreen(wx, wz, wy = 0) {
+  const sx = (wx - wz) * COS;
+  const sy = -(wx + wz) * SIN - wy;
+  return {
+    x: canvas.width * 0.5 + sx - camera.x,
+    y: canvas.height * 0.62 + sy - camera.y
+  };
+}
 
 function createPlayer(isLocal) {
   return {
     isLocal, connected: isLocal, state: STATE.IDLE,
     score: 0, combo: 0, blockIndex: 1,
-    dist: 0, y: 0, vx: 0, vy: 0, power: 0, scaleY: 1, rotate: 0
+    x: 0, z: 0, y: 0,
+    startX: 0, startZ: 0, dirX: 1, dirZ: 0,
+    vh: 0, vy: 0, power: 0, scaleY: 1, flipAngle: 0, fallRotate: 0
   };
 }
 
 let me = createPlayer(true);
 let rival = createPlayer(false);
 
+// ================= 5. 联机通信 =================
 function startOffline() {
+  initAudio();
   isOnline = false;
   document.getElementById('lobby').style.display = 'none';
   document.getElementById('ui').style.display = 'flex';
-  document.getElementById('tip').innerText = '长按屏幕蓄力，松开跳跃';
+  document.getElementById('tip').innerText = '长按蓄力，松开跳跃';
   initGame(Date.now());
 }
 
 function joinRoom() {
+  initAudio();
   const sbUrl = document.getElementById('urlInput').value.trim();
   const sbKey = document.getElementById('keyInput').value.trim();
   const roomId = document.getElementById('roomInput').value.trim() || '1024';
-
   if (!sbUrl || !sbKey) {
-    alert('请先填写 Supabase Project URL 和 Anon Key，或点击“单人练习模式”');
+    alert('请先填写 Supabase URL 和 Anon Key，或点“单人练习模式”');
     document.getElementById('supabaseConfig').style.display = 'block';
     return;
   }
-
   localStorage.setItem('jump_sb_url', sbUrl);
   localStorage.setItem('jump_sb_key', sbKey);
 
@@ -168,12 +226,8 @@ function joinRoom() {
   document.getElementById('shareBtn').style.display = 'block';
   document.getElementById('rivalStatus').innerText = '等待对手加入...';
   document.getElementById('rivalScore').innerText = '0';
-  document.getElementById('tip').innerText = '正在连接联机房间...';
 
-  channel = supabaseClient.channel('jump_room_' + roomId, {
-    config: { broadcast: { self: false } }
-  });
-
+  channel = supabaseClient.channel('jump_v2_' + roomId, { config: { broadcast: { self: false } } });
   channel
     .on('broadcast', { event: 'action' }, ({ payload }) => handleRivalAction(payload))
     .on('presence', { event: 'sync' }, () => {
@@ -190,7 +244,6 @@ function joinRoom() {
       if (status === 'SUBSCRIBED') {
         initGame(mapSeed);
         await channel.track({ id: myId, seed: mapSeed, joinedAt: Date.now() });
-        document.getElementById('tip').innerText = '已进入房间！长按蓄力，松开跳跃';
       }
     });
 }
@@ -209,16 +262,21 @@ function handleRivalAction(payload) {
     rival.power = payload.power;
     rival.scaleY = 1;
     rival.state = STATE.JUMPING;
-    rival.vx = 4 + rival.power * 0.14;
-    rival.vy = 9 + rival.power * 0.12;
+    rival.dirX = payload.dirX;
+    rival.dirZ = payload.dirZ;
+    rival.vh = 3.6 + rival.power * 0.11;
+    rival.vy = 9.5 + rival.power * 0.09;
+    rival.flipAngle = 0;
   } else if (payload.type === 'sync_land') {
-    rival.dist = payload.dist;
+    rival.x = payload.x;
+    rival.z = payload.z;
     rival.y = 0;
+    rival.flipAngle = 0;
     rival.score = payload.score;
     rival.blockIndex = payload.blockIndex;
     rival.state = payload.alive ? STATE.IDLE : STATE.FALLING;
     document.getElementById('rivalScore').innerText = rival.score;
-    ensureBlocksEnough(rival.blockIndex + 3);
+    ensureBlocksEnough(rival.blockIndex + 5);
   } else if (payload.type === 'restart') {
     rival = createPlayer(false);
     rival.connected = true;
@@ -226,55 +284,71 @@ function handleRivalAction(payload) {
   }
 }
 
+// ================= 6. 地图生成（双方向交替 + 多种微信风格台子） =================
+const BLOCK_THEMES = [
+  { top: '#ffffff', left: '#e2e6ea', right: '#c5cbd3', shape: 'box' },     // 经典白盒
+  { top: '#ffd56b', left: '#eab949', right: '#c9982c', shape: 'box' },     // 暖黄积木
+  { top: '#7bdff2', left: '#5bc0d4', right: '#3d9eb2', shape: 'cylinder' },// 浅蓝圆柱
+  { top: '#b2f7ef', left: '#8cd9d0', right: '#68b8af', shape: 'box' },     // 薄荷绿盒
+  { top: '#ff9ebb', left: '#e07a99', right: '#bd5977', shape: 'cylinder' },// 樱花粉柱
+  { top: '#525252', left: '#3d3d3d', right: '#292929', shape: 'box' }      // 黑胶唱片风
+];
+
 function initGame(seed) {
   mapSeed = seed;
   me = createPlayer(true);
   rival = createPlayer(false);
+  ripples = [];
+  floatingTexts = [];
   document.getElementById('myScore').innerText = 0;
   if (isOnline) document.getElementById('rivalScore').innerText = 0;
 
-  blocks = [{ dist: 0, radius: 55, color: '#ffffff' }];
-  ensureBlocksEnough(10);
+  blocks = [{
+    x: 0, z: 0, radius: 54, height: 48, pressY: 0,
+    theme: BLOCK_THEMES[0]
+  }];
+  ensureBlocksEnough(12);
   updateCameraTarget();
   camera.x = camera.targetX;
   camera.y = camera.targetY;
 }
 
 function ensureBlocksEnough(targetCount) {
-  const colors = ['#ffffff', '#ffd166', '#06d6a0', '#118ab2', '#ef476f'];
   while (blocks.length <= targetCount) {
     const prev = blocks[blocks.length - 1];
-    const gap = 130 + seededRandom() * 140;
-    const radius = 38 + seededRandom() * 22;
-    const color = colors[Math.floor(seededRandom() * colors.length)];
-    blocks.push({ dist: prev.dist + gap, radius, color });
+    // 随机向 X轴(右上方) 或 Z轴(左上方) 推进
+    const goX = seededRandom() > 0.5;
+    const gap = 125 + seededRandom() * 135;
+    const radius = 38 + seededRandom() * 20;
+    const theme = BLOCK_THEMES[Math.floor(seededRandom() * BLOCK_THEMES.length)];
+    blocks.push({
+      x: prev.x + (goX ? gap : 0),
+      z: prev.z + (goX ? 0 : gap),
+      radius,
+      height: 48,
+      pressY: 0, // 蓄力下沉深度
+      theme
+    });
   }
 }
 
 function updateCameraTarget() {
   const curr = blocks[me.blockIndex - 1];
   const next = blocks[me.blockIndex];
-  const midDist = (curr.dist + next.dist) / 2;
-  camera.targetX = midDist * COS;
-  camera.targetY = midDist * SIN;
+  const midX = (curr.x + next.x) / 2;
+  const midZ = (curr.z + next.z) / 2;
+  camera.targetX = (midX - midZ) * COS;
+  camera.targetY = -(midX + midZ) * SIN;
 }
 
-function toScreen(dist, y = 0) {
-  return {
-    x: canvas.width * 0.45 + dist * COS - camera.x,
-    y: canvas.height * 0.65 - dist * SIN + camera.y - y
-  };
-}
-
-// 仅在 canvas 画布上监听按下与松开，彻底避免干扰按钮点击
+// ================= 7. 操作与物理 =================
 function onPointerDown(e) {
   if (document.getElementById('lobby').style.display !== 'none') return;
   e.preventDefault();
-  
   if (me.state === STATE.GAMEOVER) {
     me = createPlayer(true);
     document.getElementById('myScore').innerText = 0;
-    document.getElementById('tip').innerText = '已重新出发！';
+    document.getElementById('tip').innerText = '';
     updateCameraTarget();
     sendAction('restart');
     return;
@@ -282,6 +356,7 @@ function onPointerDown(e) {
   if (me.state === STATE.IDLE) {
     me.state = STATE.CHARGING;
     me.power = 0;
+    startChargeSound();
     sendAction('charge_start');
   }
 }
@@ -289,11 +364,24 @@ function onPointerDown(e) {
 function onPointerUp(e) {
   if (me.state !== STATE.CHARGING) return;
   e.preventDefault();
+  stopChargeSound();
+  
+  const currBlock = blocks[me.blockIndex - 1];
+  const nextBlock = blocks[me.blockIndex];
+  // 计算当前位置指向目标方块中心的单位方向向量（还原微信自带的微调方向辅助）
+  const dx = nextBlock.x - me.x;
+  const dz = nextBlock.z - me.z;
+  const len = Math.hypot(dx, dz) || 1;
+  me.dirX = dx / len;
+  me.dirZ = dz / len;
+
   me.state = STATE.JUMPING;
   me.scaleY = 1;
-  me.vx = 4 + me.power * 0.14;
-  me.vy = 9 + me.power * 0.12;
-  sendAction('jump', { power: me.power });
+  me.flipAngle = 0;
+  me.vh = 3.6 + me.power * 0.11;
+  me.vy = 9.5 + me.power * 0.09;
+
+  sendAction('jump', { power: me.power, dirX: me.dirX, dirZ: me.dirZ });
 }
 
 canvas.addEventListener('mousedown', onPointerDown);
@@ -302,25 +390,40 @@ canvas.addEventListener('touchstart', onPointerDown, { passive: false });
 window.addEventListener('touchend', onPointerUp, { passive: false });
 
 function updatePlayer(p) {
+  const currBlock = blocks[p.blockIndex - 1];
+
   if (p.state === STATE.CHARGING) {
-    p.power = Math.min(p.power + 1.2, 100);
-    p.scaleY = Math.max(0.55, 1 - p.power * 0.0045);
-  } else if (p.state === STATE.JUMPING) {
-    p.dist += p.vx;
+    p.power = Math.min(p.power + 1.15, 100);
+    p.scaleY = Math.max(0.58, 1 - p.power * 0.0042);
+    // 脚下方块跟着下沉
+    if (currBlock) currBlock.pressY = p.power * 0.14;
+  } else {
+    // 松开后方块弹性回弹
+    if (currBlock && currBlock.pressY > 0) {
+      currBlock.pressY = Math.max(0, currBlock.pressY - 1.8);
+    }
+  }
+
+  if (p.state === STATE.JUMPING) {
+    p.x += p.dirX * p.vh;
+    p.z += p.dirZ * p.vh;
     p.y += p.vy;
-    p.vy -= 0.55;
+    p.vy -= 0.56;
+    // 空中前空翻 360 度
+    p.flipAngle += 0.19;
 
     if (p.y <= 0) {
       p.y = 0;
+      p.flipAngle = 0;
       if (p.isLocal) checkLocalLanding();
       else p.state = STATE.IDLE;
     }
   } else if (p.state === STATE.FALLING) {
     p.y -= 7;
-    p.rotate += 0.12;
-    if (p.y < -250 && p.isLocal) {
+    p.fallRotate += 0.12;
+    if (p.y < -260 && p.isLocal) {
       p.state = STATE.GAMEOVER;
-      document.getElementById('tip').innerText = '掉下去了！点击屏幕立即复活';
+      document.getElementById('tip').innerText = '游戏结束！点击屏幕重新开始';
     }
   }
 }
@@ -328,103 +431,219 @@ function updatePlayer(p) {
 function checkLocalLanding() {
   const currBlock = blocks[me.blockIndex - 1];
   const nextBlock = blocks[me.blockIndex];
-  const diffCurr = Math.abs(me.dist - currBlock.dist);
-  const diffNext = Math.abs(me.dist - nextBlock.dist);
 
-  if (diffCurr <= currBlock.radius) {
+  // 方形与圆形统一用切比雪夫/欧氏混合判定，手感更宽容自然
+  const inCurr = Math.abs(me.x - currBlock.x) <= currBlock.radius && Math.abs(me.z - currBlock.z) <= currBlock.radius;
+  const distNext = Math.hypot(me.x - nextBlock.x, me.z - nextBlock.z);
+  const inNext = Math.abs(me.x - nextBlock.x) <= nextBlock.radius && Math.abs(me.z - nextBlock.z) <= nextBlock.radius;
+
+  if (inCurr) {
     me.combo = 0;
     me.state = STATE.IDLE;
-    sendAction('sync_land', { dist: me.dist, score: me.score, blockIndex: me.blockIndex, alive: true });
-  } else if (diffNext <= nextBlock.radius) {
-    if (diffNext <= 10) {
+    playLandSound(0);
+    sendAction('sync_land', { x: me.x, z: me.z, score: me.score, blockIndex: me.blockIndex, alive: true });
+  } else if (inNext) {
+    let addScore = 1;
+    if (distNext <= 11) {
       me.combo++;
-      me.score += 2 * me.combo;
-      document.getElementById('tip').innerText = `完美中心！+${2 * me.combo}`;
+      addScore = 2 * me.combo;
+      ripples.push({ x: nextBlock.x, z: nextBlock.z, r: 8, alpha: 0.9 });
     } else {
       me.combo = 0;
-      me.score += 1;
-      document.getElementById('tip').innerText = '长按蓄力，松开跳跃';
     }
+    me.score += addScore;
     document.getElementById('myScore').innerText = me.score;
+    floatingTexts.push({ x: me.x, z: me.z, y: 65, text: `+${addScore}`, alpha: 1 });
+    playLandSound(me.combo);
+
     me.blockIndex++;
-    ensureBlocksEnough(me.blockIndex + 5);
+    ensureBlocksEnough(me.blockIndex + 6);
     updateCameraTarget();
     me.state = STATE.IDLE;
-    sendAction('sync_land', { dist: me.dist, score: me.score, blockIndex: me.blockIndex, alive: true });
+    sendAction('sync_land', { x: me.x, z: me.z, score: me.score, blockIndex: me.blockIndex, alive: true });
   } else {
     me.state = STATE.FALLING;
-    sendAction('sync_land', { dist: me.dist, score: me.score, blockIndex: me.blockIndex, alive: false });
+    sendAction('sync_land', { x: me.x, z: me.z, score: me.score, blockIndex: me.blockIndex, alive: false });
   }
 }
 
-function drawBlock(block) {
-  const pos = toScreen(block.dist, 0);
-  if (pos.x < -100 || pos.x > canvas.width + 100) return;
-  const r = block.radius;
-  const h = 45;
+// ================= 8. 立体方块、阴影与棋子渲染 =================
+function drawBlock(b) {
+  const topY = -b.pressY;
+  const baseY = -b.height;
+  const r = b.radius;
+  const center = worldToScreen(b.x, b.z, topY);
+  if (center.x < -150 || center.x > canvas.width + 150 || center.y < -150 || center.y > canvas.height + 150) return;
 
-  ctx.fillStyle = '#b8c2cc';
-  ctx.beginPath();
-  ctx.ellipse(pos.x, pos.y + h, r, r * 0.55, 0, 0, Math.PI);
-  ctx.lineTo(pos.x - r, pos.y);
-  ctx.lineTo(pos.x + r, pos.y);
-  ctx.closePath();
-  ctx.fill();
+  // 1. 地面斜向长阴影（微信标志性光影）
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.11)';
+  if (b.theme.shape === 'box') {
+    const s1 = worldToScreen(b.x - r, b.z + r, baseY);
+    const s2 = worldToScreen(b.x + r, b.z + r, baseY);
+    const s3 = worldToScreen(b.x + r + 36, b.z + r - 24, baseY);
+    const s4 = worldToScreen(b.x - r + 36, b.z - r - 24, baseY);
+    const s5 = worldToScreen(b.x - r, b.z - r, baseY);
+    ctx.beginPath();
+    ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.lineTo(s3.x, s3.y);
+    ctx.lineTo(s4.x, s4.y); ctx.lineTo(s5.x, s5.y);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    const sb = worldToScreen(b.x + 18, b.z - 12, baseY);
+    ctx.beginPath();
+    ctx.ellipse(sb.x, sb.y, r * 1.15, r * 0.62, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
-  ctx.fillStyle = block.color;
-  ctx.beginPath();
-  ctx.ellipse(pos.x, pos.y, r, r * 0.55, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.08)';
-  ctx.stroke();
+  // 2. 绘制立体台子主体
+  if (b.theme.shape === 'box') {
+    // 顶面四个角点
+    const tTop = worldToScreen(b.x + r, b.z + r, topY);
+    const tRight = worldToScreen(b.x + r, b.z - r, topY);
+    const tBottom = worldToScreen(b.x - r, b.z - r, topY);
+    const tLeft = worldToScreen(b.x - r, b.z + r, topY);
+    // 底面三个可见角点
+    const bRight = worldToScreen(b.x + r, b.z - r, baseY);
+    const bBottom = worldToScreen(b.x - r, b.z - r, baseY);
+    const bLeft = worldToScreen(b.x - r, b.z + r, baseY);
 
-  ctx.fillStyle = '#ff4d4f';
+    // 左侧面（受光面）
+    ctx.fillStyle = b.theme.left;
+    ctx.beginPath();
+    ctx.moveTo(tLeft.x, tLeft.y); ctx.lineTo(tBottom.x, tBottom.y);
+    ctx.lineTo(bBottom.x, bBottom.y); ctx.lineTo(bLeft.x, bLeft.y);
+    ctx.closePath();
+    ctx.fill();
+
+    // 右侧面（背光面）
+    ctx.fillStyle = b.theme.right;
+    ctx.beginPath();
+    ctx.moveTo(tBottom.x, tBottom.y); ctx.lineTo(tRight.x, tRight.y);
+    ctx.lineTo(bRight.x, bRight.y); ctx.lineTo(bBottom.x, bBottom.y);
+    ctx.closePath();
+    ctx.fill();
+
+    // 顶面
+    ctx.fillStyle = b.theme.top;
+    ctx.beginPath();
+    ctx.moveTo(tTop.x, tTop.y); ctx.lineTo(tRight.x, tRight.y);
+    ctx.lineTo(tBottom.x, tBottom.y); ctx.lineTo(tLeft.x, tLeft.y);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    // 立体圆柱
+    const botCenter = worldToScreen(b.x, b.z, baseY);
+    const rx = r * 1.15;
+    const ry = r * 0.62;
+    const grad = ctx.createLinearGradient(center.x - rx, 0, center.x + rx, 0);
+    grad.addColorStop(0, b.theme.left);
+    grad.addColorStop(1, b.theme.right);
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(botCenter.x, botCenter.y, rx, ry, 0, 0, Math.PI);
+    ctx.lineTo(center.x - rx, center.y);
+    ctx.lineTo(center.x + rx, center.y);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = b.theme.top;
+    ctx.beginPath();
+    ctx.ellipse(center.x, center.y, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 中心白色小圆点（提示靶心）
+  ctx.fillStyle = 'rgba(0,0,0,0.08)';
   ctx.beginPath();
-  ctx.ellipse(pos.x, pos.y, 6, 6 * 0.55, 0, 0, Math.PI * 2);
+  ctx.ellipse(center.x, center.y, 5, 3, 0, 0, Math.PI * 2);
   ctx.fill();
 }
 
 function drawPlayer(p) {
   if (!p.connected) return;
-  const pos = toScreen(p.dist, p.y);
+  const currBlock = blocks[p.blockIndex - 1];
+  const sinkY = (p.y === 0 && currBlock) ? -currBlock.pressY : p.y;
+  const pos = worldToScreen(p.x, p.z, sinkY);
 
   ctx.save();
   if (!p.isLocal) ctx.globalAlpha = 0.55;
 
+  // 脚下投影
   if (p.state !== STATE.FALLING) {
-    const shadowPos = toScreen(p.dist, 0);
-    const shadowScale = Math.max(0.4, 1 - p.y / 250);
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    const shadowPos = worldToScreen(p.x, p.z, sinkY);
+    const s = Math.max(0.45, 1 - p.y / 240);
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
     ctx.beginPath();
-    ctx.ellipse(shadowPos.x, shadowPos.y, 14 * shadowScale, 8 * shadowScale, 0, 0, Math.PI * 2);
+    ctx.ellipse(shadowPos.x, shadowPos.y, 13 * s, 7 * s, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  ctx.translate(pos.x, pos.y);
-  ctx.rotate(p.rotate);
-  ctx.scale(1 + (1 - p.scaleY) * 0.3, p.scaleY);
+  // 围绕小人重心旋转（实现空中 360 度前空翻）
+  ctx.translate(pos.x, pos.y - 24 * p.scaleY);
+  if (p.state === STATE.JUMPING) {
+    const flipDir = p.dirX >= p.dirZ ? 1 : -1;
+    ctx.rotate(p.flipAngle * flipDir);
+  } else if (p.state === STATE.FALLING) {
+    ctx.rotate(p.fallRotate);
+  }
+  ctx.translate(0, 24 * p.scaleY);
+  ctx.scale(1 + (1 - p.scaleY) * 0.32, p.scaleY);
 
-  ctx.fillStyle = p.isLocal ? '#2b2d42' : '#118ab2';
+  // 微信经典“i”字形棋子身体
+  const bodyGrad = ctx.createLinearGradient(-12, -40, 12, 0);
+  bodyGrad.addColorStop(0, p.isLocal ? '#4a4e69' : '#118ab2');
+  bodyGrad.addColorStop(1, p.isLocal ? '#22223b' : '#073b4c');
+  ctx.fillStyle = bodyGrad;
   ctx.beginPath();
-  ctx.moveTo(-12, 0);
-  ctx.lineTo(12, 0);
-  ctx.lineTo(6, -36);
-  ctx.lineTo(-6, -36);
+  ctx.moveTo(-11, 0);
+  ctx.quadraticCurveTo(0, 3, 11, 0);
+  ctx.lineTo(6, -34);
+  ctx.lineTo(-6, -34);
   ctx.closePath();
   ctx.fill();
 
-  ctx.fillStyle = p.isLocal ? '#3d405b' : '#06d6a0';
+  // 棋子圆形头部（带高光）
+  ctx.fillStyle = p.isLocal ? '#2b2d42' : '#06d6a0';
   ctx.beginPath();
-  ctx.arc(0, -45, 9, 0, Math.PI * 2);
+  ctx.arc(0, -44, 8.5, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.scale(1 / (1 + (1 - p.scaleY) * 0.3), 1 / p.scaleY);
-  ctx.fillStyle = p.isLocal ? '#2b2d42' : '#118ab2';
-  ctx.font = 'bold 12px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(p.isLocal ? '我' : '对手', 0, -62);
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.beginPath();
+  ctx.arc(-2.5, -46.5, 2.5, 0, Math.PI * 2);
+  ctx.fill();
 
   ctx.restore();
+}
+
+function drawEffects() {
+  // 中心命中白色波纹
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const rp = ripples[i];
+    const pos = worldToScreen(rp.x, rp.z, 0);
+    ctx.strokeStyle = `rgba(255, 255, 255, ${rp.alpha})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y, rp.r * 1.2, rp.r * 0.65, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    rp.r += 1.8;
+    rp.alpha -= 0.025;
+    if (rp.alpha <= 0) ripples.splice(i, 1);
+  }
+
+  // +1 / +2 飘字
+  for (let i = floatingTexts.length - 1; i >= 0; i--) {
+    const ft = floatingTexts[i];
+    const pos = worldToScreen(ft.x, ft.z, ft.y);
+    ctx.fillStyle = `rgba(43, 45, 66, ${ft.alpha})`;
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(ft.text, pos.x, pos.y);
+    ft.y += 1.2;
+    ft.alpha -= 0.022;
+    if (ft.alpha <= 0) floatingTexts.splice(i, 1);
+  }
 }
 
 function loop() {
@@ -432,7 +651,11 @@ function loop() {
   camera.x += (camera.targetX - camera.x) * 0.08;
   camera.y += (camera.targetY - camera.y) * 0.08;
 
-  blocks.forEach(drawBlock);
+  // 按深度顺序（从后往前）绘制方块，避免 2.5D 遮挡穿帮
+  for (let i = Math.max(0, me.blockIndex - 4); i < blocks.length; i++) {
+    drawBlock(blocks[i]);
+  }
+  drawEffects();
   drawPlayer(rival);
   drawPlayer(me);
 
