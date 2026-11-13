@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>跳一跳 · 实时联机对战</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body { background: #e8ecf1; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    canvas { background: linear-gradient(180deg, #f5f7fa 0%, #c3cfe2 100%); box-shadow: 0 10px 30px rgba(0,0,0,0.12); border-radius: 12px; max-width: 100vw; max-height: 100vh; }
+    
+    #lobby {
+      position: absolute; background: rgba(255,255,255,0.96); padding: 26px; border-radius: 16px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.16); text-align: center; width: 330px; z-index: 10;
+    }
+    #lobby h2 { margin-bottom: 14px; color: #2b2d42; font-size: 20px; }
+    #lobby input {
+      width: 100%; padding: 10px 12px; margin-bottom: 10px; border: 1px solid #d1d5db;
+      border-radius: 8px; font-size: 14px; outline: none;
+    }
+    #lobby input:focus { border-color: #2b2d42; }
+    #lobby button {
+      width: 100%; padding: 12px; background: #2b2d42; color: #fff; border: none;
+      border-radius: 8px; font-size: 15px; cursor: pointer; font-weight: bold; margin-top: 4px;
+    }
+    #lobby button:hover { background: #3d405b; }
+    .sub-btn { background: #eef2f6 !important; color: #2b2d42 !important; font-size: 13px !important; padding: 8px !important; margin-top: 8px !important; }
+    .config-toggle { font-size: 12px; color: #6b7280; cursor: pointer; margin-top: 10px; display: inline-block; text-decoration: underline; }
+
+    #ui { position: absolute; top: 20px; width: 380px; max-width: 92vw; display: flex; justify-content: space-between; pointer-events: none; }
+    .score-box { background: rgba(255,255,255,0.85); padding: 8px 16px; border-radius: 10px; text-align: center; min-width: 110px; }
+    .score-title { font-size: 12px; color: #666; }
+    .score-val { font-size: 26px; font-weight: bold; color: #2b2d42; }
+    #rival-box .score-val { color: #118ab2; }
+    #tip { position: absolute; top: 94px; width: 100%; text-align: center; font-size: 14px; color: #4b5563; pointer-events: none; font-weight: 500; }
+    #shareBtn {
+      position: absolute; bottom: 24px; background: rgba(43,45,66,0.85); color: #fff;
+      border: none; padding: 8px 16px; border-radius: 20px; font-size: 13px; cursor: pointer; display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="lobby">
+    <h2>跳一跳 · 实时联机版</h2>
+    <input type="text" id="roomInput" placeholder="输入房间号 (如: 1024)">
+    <div id="supabaseConfig">
+      <input type="text" id="urlInput" placeholder="Supabase Project URL">
+      <input type="password" id="keyInput" placeholder="Supabase Anon Public Key">
+    </div>
+    <button onclick="joinRoom()">进入房间对战</button>
+    <button class="sub-btn" onclick="startOffline()">单人练习模式</button>
+    <span class="config-toggle" onclick="toggleConfig()">显示/隐藏 Supabase 密钥配置</span>
+  </div>
+
+  <div id="ui" style="display:none;">
+    <div class="score-box">
+      <div class="score-title">我方得分</div>
+      <div class="score-val" id="myScore">0</div>
+    </div>
+    <div class="score-box" id="rival-box">
+      <div class="score-title" id="rivalStatus">单人模式</div>
+      <div class="score-val" id="rivalScore">-</div>
+    </div>
+  </div>
+  <div id="tip"></div>
+  <button id="shareBtn" onclick="copyInviteLink()">复制房间邀请链接</button>
+
+  <canvas id="gameCanvas" width="420" height="720"></canvas>
+
+<script>
+// // 默认填入配置（可在此处写死你的 URL 和 KEY，这样好友打开无需再填）
+const DEFAULT_SUPABASE_URL = 'https://你的项目ID.supabase.co'; 
+const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';默认填入配置（可在此处写死你的 URL 和 KEY，这样好友打开无需再填）
+
+
+let supabaseClient = null;
+let channel = null;
+let isOnline = false;
+const myId = 'player_' + Math.random().toString(36).substr(2, 6);
+let mapSeed = Date.now();
+
+// 初始化表单与 URL 参数读取
+window.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(window.location.search);
+  document.getElementById('roomInput').value = params.get('room') || '1024';
+  
+  const savedUrl = DEFAULT_SUPABASE_URL || localStorage.getItem('jump_sb_url') || '';
+  const savedKey = DEFAULT_SUPABASE_KEY || localStorage.getItem('jump_sb_key') || '';
+  document.getElementById('urlInput').value = savedUrl;
+  document.getElementById('keyInput').value = savedKey;
+  if (savedUrl && savedKey) {
+    document.getElementById('supabaseConfig').style.display = 'none';
+  }
+});
+
+function toggleConfig() {
+  const box = document.getElementById('supabaseConfig');
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+
+function copyInviteLink() {
+  const room = document.getElementById('roomInput').value.trim() || '1024';
+  const url = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(room)}`;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = document.getElementById('shareBtn');
+    btn.innerText = '已复制链接！快发给好友';
+    setTimeout(() => btn.innerText = '复制房间邀请链接', 2500);
+  });
+}
+
+function seededRandom() {
+  mapSeed = (mapSeed * 9301 + 49297) % 233280;
+  return mapSeed / 233280;
+}
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const ANGLE = Math.PI / 6;
+const COS = Math.cos(ANGLE);
+const SIN = Math.sin(ANGLE);
+const STATE = { IDLE: 0, CHARGING: 1, JUMPING: 2, FALLING: 3, GAMEOVER: 4 };
+
+let camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
+let blocks = [];
+
+function createPlayer(isLocal) {
+  return {
+    isLocal, connected: isLocal, state: STATE.IDLE,
+    score: 0, combo: 0, blockIndex: 1,
+    dist: 0, y: 0, vx: 0, vy: 0, power: 0, scaleY: 1, rotate: 0
+  };
+}
+
+let me = createPlayer(true);
+let rival = createPlayer(false);
+
+function startOffline() {
+  isOnline = false;
+  document.getElementById('lobby').style.display = 'none';
+  document.getElementById('ui').style.display = 'flex';
+  document.getElementById('tip').innerText = '长按屏幕蓄力，松开跳跃';
+  initGame(Date.now());
+}
+
+function joinRoom() {
+  const sbUrl = document.getElementById('urlInput').value.trim();
+  const sbKey = document.getElementById('keyInput').value.trim();
+  const roomId = document.getElementById('roomInput').value.trim() || '1024';
+
+  if (!sbUrl || !sbKey) {
+    alert('请先填写 Supabase Project URL 和 Anon Key，或点击“单人练习模式”');
+    document.getElementById('supabaseConfig').style.display = 'block';
+    return;
+  }
+
+  localStorage.setItem('jump_sb_url', sbUrl);
+  localStorage.setItem('jump_sb_key', sbKey);
+
+  isOnline = true;
+  supabaseClient = supabase.createClient(sbUrl, sbKey);
+  document.getElementById('lobby').style.display = 'none';
+  document.getElementById('ui').style.display = 'flex';
+  document.getElementById('shareBtn').style.display = 'block';
+  document.getElementById('rivalStatus').innerText = '等待对手加入...';
+  document.getElementById('rivalScore').innerText = '0';
+  document.getElementById('tip').innerText = '正在连接联机房间...';
+
+  channel = supabaseClient.channel('jump_room_' + roomId, {
+    config: { broadcast: { self: false } }
+  });
+
+  channel
+    .on('broadcast', { event: 'action' }, ({ payload }) => handleRivalAction(payload))
+    .on('presence', { event: 'sync' }, () => {
+      const users = Object.values(channel.presenceState()).flat();
+      users.sort((a, b) => a.joinedAt - b.joinedAt);
+      if (users.length > 0 && users[0].id !== myId && mapSeed !== users[0].seed) {
+        initGame(users[0].seed);
+      }
+      const hasRival = users.some(u => u.id !== myId);
+      rival.connected = hasRival;
+      document.getElementById('rivalStatus').innerText = hasRival ? '对手在线' : '等待对手加入...';
+    })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        initGame(mapSeed);
+        await channel.track({ id: myId, seed: mapSeed, joinedAt: Date.now() });
+        document.getElementById('tip').innerText = '已进入房间！长按蓄力，松开跳跃';
+      }
+    });
+}
+
+function sendAction(type, data = {}) {
+  if (!isOnline || !channel) return;
+  channel.send({ type: 'broadcast', event: 'action', payload: { type, ...data } });
+}
+
+function handleRivalAction(payload) {
+  rival.connected = true;
+  if (payload.type === 'charge_start') {
+    rival.state = STATE.CHARGING;
+    rival.power = 0;
+  } else if (payload.type === 'jump') {
+    rival.power = payload.power;
+    rival.scaleY = 1;
+    rival.state = STATE.JUMPING;
+    rival.vx = 4 + rival.power * 0.14;
+    rival.vy = 9 + rival.power * 0.12;
+  } else if (payload.type === 'sync_land') {
+    rival.dist = payload.dist;
+    rival.y = 0;
+    rival.score = payload.score;
+    rival.blockIndex = payload.blockIndex;
+    rival.state = payload.alive ? STATE.IDLE : STATE.FALLING;
+    document.getElementById('rivalScore').innerText = rival.score;
+    ensureBlocksEnough(rival.blockIndex + 3);
+  } else if (payload.type === 'restart') {
+    rival = createPlayer(false);
+    rival.connected = true;
+    document.getElementById('rivalScore').innerText = 0;
+  }
+}
+
+function initGame(seed) {
+  mapSeed = seed;
+  me = createPlayer(true);
+  rival = createPlayer(false);
+  document.getElementById('myScore').innerText = 0;
+  if (isOnline) document.getElementById('rivalScore').innerText = 0;
+
+  blocks = [{ dist: 0, radius: 55, color: '#ffffff' }];
+  ensureBlocksEnough(10);
+  updateCameraTarget();
+  camera.x = camera.targetX;
+  camera.y = camera.targetY;
+}
+
+function ensureBlocksEnough(targetCount) {
+  const colors = ['#ffffff', '#ffd166', '#06d6a0', '#118ab2', '#ef476f'];
+  while (blocks.length <= targetCount) {
+    const prev = blocks[blocks.length - 1];
+    const gap = 130 + seededRandom() * 140;
+    const radius = 38 + seededRandom() * 22;
+    const color = colors[Math.floor(seededRandom() * colors.length)];
+    blocks.push({ dist: prev.dist + gap, radius, color });
+  }
+}
+
+function updateCameraTarget() {
+  const curr = blocks[me.blockIndex - 1];
+  const next = blocks[me.blockIndex];
+  const midDist = (curr.dist + next.dist) / 2;
+  camera.targetX = midDist * COS;
+  camera.targetY = midDist * SIN;
+}
+
+function toScreen(dist, y = 0) {
+  return {
+    x: canvas.width * 0.45 + dist * COS - camera.x,
+    y: canvas.height * 0.65 - dist * SIN + camera.y - y
+  };
+}
+
+function onPointerDown(e) {
+  if (['INPUT', 'BUTTON', 'SPAN'].includes(e.target.tagName)) return;
+  if (document.getElementById('lobby').style.display !== 'none') return;
+  e.preventDefault();
+  
+  if (me.state === STATE.GAMEOVER) {
+    me = createPlayer(true);
+    document.getElementById('myScore').innerText = 0;
+    document.getElementById('tip').innerText = '已重新出发！';
+    updateCameraTarget();
+    sendAction('restart');
+    return;
+  }
+  if (me.state === STATE.IDLE) {
+    me.state = STATE.CHARGING;
+    me.power = 0;
+    sendAction('charge_start');
+  }
+}
+
+function onPointerUp(e) {
+  if (me.state !== STATE.CHARGING) return;
+  e.preventDefault();
+  me.state = STATE.JUMPING;
+  me.scaleY = 1;
+  me.vx = 4 + me.power * 0.14;
+  me.vy = 9 + me.power * 0.12;
+  sendAction('jump', { power: me.power });
+}
+
+window.addEventListener('mousedown', onPointerDown);
+window.addEventListener('mouseup', onPointerUp);
+window.addEventListener('touchstart', onPointerDown, { passive: false });
+window.addEventListener('touchend', onPointerUp, { passive: false });
+
+function updatePlayer(p) {
+  if (p.state === STATE.CHARGING) {
+    p.power = Math.min(p.power + 1.2, 100);
+    p.scaleY = Math.max(0.55, 1 - p.power * 0.0045);
+  } else if (p.state === STATE.JUMPING) {
+    p.dist += p.vx;
+    p.y += p.vy;
+    p.vy -= 0.55;
+
+    if (p.y <= 0) {
+      p.y = 0;
+      if (p.isLocal) checkLocalLanding();
+      else p.state = STATE.IDLE;
+    }
+  } else if (p.state === STATE.FALLING) {
+    p.y -= 7;
+    p.rotate += 0.12;
+    if (p.y < -250 && p.isLocal) {
+      p.state = STATE.GAMEOVER;
+      document.getElementById('tip').innerText = '掉下去了！点击屏幕立即复活';
+    }
+  }
+}
+
+function checkLocalLanding() {
+  const currBlock = blocks[me.blockIndex - 1];
+  const nextBlock = blocks[me.blockIndex];
+  const diffCurr = Math.abs(me.dist - currBlock.dist);
+  const diffNext = Math.abs(me.dist - nextBlock.dist);
+
+  if (diffCurr <= currBlock.radius) {
+    me.combo = 0;
+    me.state = STATE.IDLE;
+    sendAction('sync_land', { dist: me.dist, score: me.score, blockIndex: me.blockIndex, alive: true });
+  } else if (diffNext <= nextBlock.radius) {
+    if (diffNext <= 10) {
+      me.combo++;
+      me.score += 2 * me.combo;
+      document.getElementById('tip').innerText = `完美中心！+${2 * me.combo}`;
+    } else {
+      me.combo = 0;
+      me.score += 1;
+      document.getElementById('tip').innerText = '长按蓄力，松开跳跃';
+    }
+    document.getElementById('myScore').innerText = me.score;
+    me.blockIndex++;
+    ensureBlocksEnough(me.blockIndex + 5);
+    updateCameraTarget();
+    me.state = STATE.IDLE;
+    sendAction('sync_land', { dist: me.dist, score: me.score, blockIndex: me.blockIndex, alive: true });
+  } else {
+    me.state = STATE.FALLING;
+    sendAction('sync_land', { dist: me.dist, score: me.score, blockIndex: me.blockIndex, alive: false });
+  }
+}
+
+function drawBlock(block) {
+  const pos = toScreen(block.dist, 0);
+  if (pos.x < -100 || pos.x > canvas.width + 100) return;
+  const r = block.radius;
+  const h = 45;
+
+  ctx.fillStyle = '#b8c2cc';
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y + h, r, r * 0.55, 0, 0, Math.PI);
+  ctx.lineTo(pos.x - r, pos.y);
+  ctx.lineTo(pos.x + r, pos.y);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = block.color;
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y, r, r * 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+  ctx.stroke();
+
+  ctx.fillStyle = '#ff4d4f';
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y, 6, 6 * 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawPlayer(p) {
+  if (!p.connected) return;
+  const pos = toScreen(p.dist, p.y);
+
+  ctx.save();
+  if (!p.isLocal) ctx.globalAlpha = 0.55;
+
+  if (p.state !== STATE.FALLING) {
+    const shadowPos = toScreen(p.dist, 0);
+    const shadowScale = Math.max(0.4, 1 - p.y / 250);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.beginPath();
+    ctx.ellipse(shadowPos.x, shadowPos.y, 14 * shadowScale, 8 * shadowScale, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.translate(pos.x, pos.y);
+  ctx.rotate(p.rotate);
+  ctx.scale(1 + (1 - p.scaleY) * 0.3, p.scaleY);
+
+  ctx.fillStyle = p.isLocal ? '#2b2d42' : '#118ab2';
+  ctx.beginPath();
+  ctx.moveTo(-12, 0);
+  ctx.lineTo(12, 0);
+  ctx.lineTo(6, -36);
+  ctx.lineTo(-6, -36);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = p.isLocal ? '#3d405b' : '#06d6a0';
+  ctx.beginPath();
+  ctx.arc(0, -45, 9, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.scale(1 / (1 + (1 - p.scaleY) * 0.3), 1 / p.scaleY);
+  ctx.fillStyle = p.isLocal ? '#2b2d42' : '#118ab2';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(p.isLocal ? '我' : '对手', 0, -62);
+
+  ctx.restore();
+}
+
+function loop() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  camera.x += (camera.targetX - camera.x) * 0.08;
+  camera.y += (camera.targetY - camera.y) * 0.08;
+
+  blocks.forEach(drawBlock);
+  drawPlayer(rival);
+  drawPlayer(me);
+
+  updatePlayer(me);
+  updatePlayer(rival);
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
